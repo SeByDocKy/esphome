@@ -1,3 +1,5 @@
+import logging
+
 from esphome import automation
 import esphome.codegen as cg
 from esphome.components import uart
@@ -25,6 +27,8 @@ CONF_CRYSTAL = "crystal"
 CONF_UART = "uart"
 CONF_TEST_MODE = "test_mode"
 CONF_RESTORE_BAUD_RATE = "restore_baud_rate"
+
+_LOGGER = logging.getLogger(__name__)
 
 weikai_ns = cg.esphome_ns.namespace("weikai")
 WeikaiComponent = weikai_ns.class_("WeikaiComponent", cg.Component)
@@ -64,7 +68,7 @@ WKBASE_SCHEMA = cv.Schema(
                 cv.Required(CONF_ID): cv.declare_id(WeikaiChannel),
                 cv.Optional(CONF_CHANNEL, default=0): cv.int_range(min=0, max=3),
                 cv.Required(CONF_BAUD_RATE): cv.int_range(min=1),
-                cv.Optional(CONF_DATA_BITS, default=8): cv.one_of(8, int=True),
+                cv.Optional(CONF_DATA_BITS, default=8): cv.one_of(7, 8, int=True),
                 cv.Optional(CONF_STOP_BITS, default=1): cv.one_of(1, 2, int=True),
                 cv.Optional(CONF_PARITY, default="NONE"): cv.enum(
                     uart.UART_PARITY_OPTIONS, upper=True
@@ -104,6 +108,16 @@ async def register_weikai(var: MockObj, config: ConfigType) -> None:
         cg.add(chan.set_baud_rate(uart_elem[CONF_BAUD_RATE]))
         cg.add(chan.set_stop_bits(uart_elem[CONF_STOP_BITS]))
         cg.add(chan.set_parity(uart_elem[CONF_PARITY]))
+        if uart_elem[CONF_DATA_BITS] == 7:
+            if uart_elem[CONF_PARITY] == "NONE" and uart_elem[CONF_STOP_BITS] == 1:
+                _LOGGER.warning(
+                    "%s: 7 data bits without parity and with 1 stop bit: received bytes "
+                    "can only be read correctly if there is a pause between them, "
+                    "use parity or 2 stop bits",
+                    uart_elem[CONF_ID],
+                )
+            cg.add_define("USE_WEIKAI_DATA_BITS_7")
+            cg.add(chan.set_data_bits(7))
         if uart_elem[CONF_RESTORE_BAUD_RATE]:
             cg.add_define("USE_WEIKAI_RESTORE_BAUD_RATE")
             cg.add(chan.set_restore_baud_rate(True))

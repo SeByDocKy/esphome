@@ -468,6 +468,28 @@ class WeikaiChannel final : public uart::UARTComponent {
   /// @brief set the baud rate
   void set_baudrate_();
 
+  /// @brief true when the channel emulates 7 data bits (the chip itself always uses 8)
+  bool seven_bits_() const {
+#ifdef USE_WEIKAI_DATA_BITS_7
+    return this->data_bits_ == 7;
+#else
+    return false;
+#endif
+  }
+
+#ifdef USE_WEIKAI_DATA_BITS_7
+  /// @brief Emulate 7 data bits: the 8th bit sent by the chip carries the parity (or a stop level without parity).
+  /// @param src bytes to send (only the 7 low bits are used)
+  /// @param dst receives the bytes to give to the chip
+  /// @param length number of bytes
+  void encode_7bits_(const uint8_t *src, uint8_t *dst, size_t length) const;
+
+  /// @brief Check the parity carried by the 8th bit, count the errors and clear that bit
+  /// @param data bytes just read from the chip, modified in place
+  /// @param length number of bytes
+  void decode_7bits_(uint8_t *data, size_t length);
+#endif
+
   /// @brief Reads the FIFO status register (FSR) of the channel.
   /// @details Reading FSR clears the RFOE (receive overflow) flag in the chip, so every FSR read goes through this
   /// method which remembers the flag until rx_in_fifo_() has reported it.
@@ -526,6 +548,9 @@ class WeikaiChannel final : public uart::UARTComponent {
   /// Saves reading the room before every write.
   uint16_t tx_room_estimate_{0};
   bool rfoe_latched_{false};  ///< RFOE seen by an FSR read that was not made by rx_in_fifo_()
+#ifdef USE_WEIKAI_DATA_BITS_7
+  uint32_t parity_errors_{0};  ///< parity errors seen since boot when emulating 7 data bits
+#endif
 #ifdef USE_WEIKAI_RESTORE_BAUD_RATE
   ESPPreferenceObject pref_;
   uint32_t config_baud_rate_{0};  ///< baud rate given in the configuration

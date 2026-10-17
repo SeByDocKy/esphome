@@ -16,6 +16,8 @@ wk2168_spi:
       - id: wk2168_spi_uart2
         channel: 2
         baud_rate: 115200
+        data_bits: 7
+        parity: even
       - id: wk2168_spi_uart3
         channel: 3
         baud_rate: 9600

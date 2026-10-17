@@ -331,19 +331,24 @@ void WeikaiChannel::reset_fifo_() {
 }
 
 void WeikaiChannel::set_line_param_() {
-  this->data_bits_ = 8;  // always equal to 8 for WeiKai (cant be changed)
+  // The chip always uses 8 data bits. 7 data bits are emulated with the 8th bit (see encode_7bits_()), the chip then
+  // does not handle the parity itself, and without parity the 8th bit already is the first stop bit.
+  if (!this->seven_bits_())
+    this->data_bits_ = 8;
   uint8_t lcr = 0;
-  if (this->stop_bits_ == 2)
+  if (this->stop_bits_ == 2 && !(this->seven_bits_() && this->parity_ == uart::UART_CONFIG_PARITY_NONE))
     lcr |= LCR_STPL;
-  switch (this->parity_) {  // parity selection settings
-    case uart::UART_CONFIG_PARITY_ODD:
-      lcr |= (LCR_PAEN | LCR_PAR_ODD);
-      break;
-    case uart::UART_CONFIG_PARITY_EVEN:
-      lcr |= (LCR_PAEN | LCR_PAR_EVEN);
-      break;
-    default:
-      break;  // no parity 000x
+  if (!this->seven_bits_()) {
+    switch (this->parity_) {  // parity selection settings
+      case uart::UART_CONFIG_PARITY_ODD:
+        lcr |= (LCR_PAEN | LCR_PAR_ODD);
+        break;
+      case uart::UART_CONFIG_PARITY_EVEN:
+        lcr |= (LCR_PAEN | LCR_PAR_EVEN);
+        break;
+      default:
+        break;  // no parity 000x
+    }
   }
   this->reg(WKREG_LCR) = lcr;  // write LCR
   char bin_buf[9];
@@ -499,8 +504,11 @@ bool WeikaiChannel::read_array(uint8_t *buffer, size_t length) {
 }
 
 uint32_t WeikaiChannel::tx_time_ms_(size_t bytes) const {
-  // bits per frame: start bit, 8 data bits, optional parity bit and the stop bits
-  uint32_t const frame_bits = 9 + this->stop_bits_ + (this->parity_ != uart::UART_CONFIG_PARITY_NONE ? 1 : 0);
+  // bits per frame sent by the chip: start bit, 8 data bits, optional parity bit and the stop bits
+  uint32_t frame_bits = 9 + this->stop_bits_ + (this->parity_ != uart::UART_CONFIG_PARITY_NONE ? 1 : 0);
+  if (this->seven_bits_()) {  // the parity bit is part of the 8 bits, a stop bit too when there is no parity
+    frame_bits = this->parity_ == uart::UART_CONFIG_PARITY_NONE ? 10 : 9 + this->stop_bits_;
+  }
   return static_cast<uint32_t>(bytes * frame_bits * 1000ULL / std::max<uint32_t>(this->baud_rate_, 1));
 }
 
@@ -521,7 +529,16 @@ void WeikaiChannel::write_array(const uint8_t *buffer, size_t length) {
         delay(std::max<uint32_t>(this->tx_time_ms_(chunk - this->tx_room_estimate_), 1));
       }
     }
-    this->reg(0).write_fifo(const_cast<uint8_t *>(buffer), chunk);
+#ifdef USE_WEIKAI_DATA_BITS_7
+    if (this->seven_bits_()) {
+      uint8_t encoded[XFER_MAX_SIZE];
+      this->encode_7bits_(buffer, encoded, chunk);
+      this->reg(0).write_fifo(encoded, chunk);
+    } else
+#endif
+    {
+      this->reg(0).write_fifo(const_cast<uint8_t *>(buffer), chunk);
+    }
     this->tx_room_estimate_ -= chunk;
     buffer += chunk;
     length -= chunk;
@@ -549,6 +566,42 @@ uart::UARTFlushResult WeikaiChannel::flush() {
   return uart::UARTFlushResult::UART_FLUSH_RESULT_SUCCESS;
 }
 
+#ifdef USE_WEIKAI_DATA_BITS_7
+/// @brief 1 when the 7 low bits of the value hold an odd number of ones
+static inline uint8_t odd_parity7(uint8_t value) {
+  value ^= value >> 4;
+  return (0x6996 >> (value & 0x0F)) & 1;
+}
+
+void WeikaiChannel::encode_7bits_(const uint8_t *src, uint8_t *dst, size_t length) const {
+  // 8th bit: the parity that makes the number of ones even (or odd), or a stop level without parity
+  uint8_t const flip = this->parity_ == uart::UART_CONFIG_PARITY_ODD ? 1 : 0;
+  bool const has_parity = this->parity_ != uart::UART_CONFIG_PARITY_NONE;
+  for (size_t i = 0; i < length; i++) {
+    uint8_t const value = src[i] & 0x7F;
+    uint8_t const bit8 = has_parity ? (odd_parity7(value) ^ flip) : 1;
+    dst[i] = value | (bit8 << 7);
+  }
+}
+
+void WeikaiChannel::decode_7bits_(uint8_t *data, size_t length) {
+  uint8_t const flip = this->parity_ == uart::UART_CONFIG_PARITY_ODD ? 1 : 0;
+  bool const has_parity = this->parity_ != uart::UART_CONFIG_PARITY_NONE;
+  uint32_t errors = 0;
+  for (size_t i = 0; i < length; i++) {
+    uint8_t const value = data[i] & 0x7F;
+    if (has_parity && (data[i] >> 7) != (odd_parity7(value) ^ flip))
+      errors++;
+    data[i] = value;
+  }
+  if (errors != 0) {
+    this->parity_errors_ += errors;
+    ESP_LOGW(TAG, "%s: %" PRIu32 " parity error(s) in the last %u bytes (%" PRIu32 " since boot)",
+             this->get_channel_name(), errors, (unsigned) length, this->parity_errors_);
+  }
+}
+#endif
+
 size_t WeikaiChannel::xfer_fifo_to_buffer_() {
   size_t total = 0;
   if (this->receive_buffer_.is_full())
@@ -562,6 +615,10 @@ size_t WeikaiChannel::xfer_fifo_to_buffer_() {
       break;  // ring buffer is full: we'll do the rest next time
     to_transfer = std::min(to_transfer, XFER_MAX_SIZE);
     this->reg(0).read_fifo(this->receive_buffer_.write_ptr(), to_transfer);
+#ifdef USE_WEIKAI_DATA_BITS_7
+    if (this->seven_bits_())
+      this->decode_7bits_(this->receive_buffer_.write_ptr(), to_transfer);
+#endif
     this->receive_buffer_.commit(to_transfer);
     in_fifo -= to_transfer;
     total += to_transfer;
