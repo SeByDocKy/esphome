@@ -158,6 +158,12 @@ class WeikaiComponent : public Component {
 
   bool page1() { return page1_; }
 
+#ifdef USE_WEIKAI_GIFR
+  /// @brief Poll the global interrupt flag register (GIFR) to find the UARTs that have received something
+  /// @param enable when true one single register read replaces the status read of every idle UART
+  void set_gifr_poll(bool enable) { this->gifr_poll_ = enable; }
+#endif
+
   /// @brief Factory method to create a Register object
   /// @param reg address of the register
   /// @param channel channel associated with this register
@@ -193,12 +199,15 @@ class WeikaiComponent : public Component {
   /// @}
 #endif
 
-  uint8_t pin_config_{0x00};                 ///< pin config mask: 1 means OUTPUT, 0 means INPUT
-  uint8_t output_state_{0x00};               ///< output state: 1 means HIGH, 0 means LOW
-  uint8_t input_state_{0x00};                ///< input pin states: 1 means HIGH, 0 means LOW
-  uint32_t crystal_;                         ///< crystal value;
-  int test_mode_;                            ///< test mode value (0 -> no tests)
-  bool page1_{false};                        ///< set to true when in "page1 mode"
+  uint8_t pin_config_{0x00};    ///< pin config mask: 1 means OUTPUT, 0 means INPUT
+  uint8_t output_state_{0x00};  ///< output state: 1 means HIGH, 0 means LOW
+  uint8_t input_state_{0x00};   ///< input pin states: 1 means HIGH, 0 means LOW
+  uint32_t crystal_;            ///< crystal value;
+  int test_mode_;               ///< test mode value (0 -> no tests)
+  bool page1_{false};           ///< set to true when in "page1 mode"
+#ifdef USE_WEIKAI_GIFR
+  bool gifr_poll_{false};  ///< true when loop() reads GIFR to select the UARTs to service
+#endif
   std::vector<WeikaiChannel *> children_{};  ///< the list of WeikaiChannel UART children
   const char *name_{""};                     ///< name of entity (string literal, no heap allocation)
 };

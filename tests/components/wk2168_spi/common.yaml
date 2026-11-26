@@ -2,6 +2,7 @@ wk2168_spi:
   - id: wk2168_spi_bridge
     cs_pin: ${cs_pin}
     crystal: 11059200
+    global_interrupt_poll: true
     data_rate: 1MHz
     uart:
       - id: wk2168_spi_uart0

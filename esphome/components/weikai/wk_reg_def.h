@@ -63,10 +63,13 @@ constexpr uint8_t GRST_C1RST = 1 << 0;
 /// @brief Global Master channel control register (not used) - 000010
 constexpr uint8_t WKREG_GMUT = 0x02;
 
-/// Global interrupt register (not used) - 01 0000
+/// @brief Global interrupt enable register - 01 0000
+/// @details One enable bit per UART (bit 0 = UART 1 ... bit 3 = UART 4), 0 = disabled, 1 = enabled
 constexpr uint8_t WKREG_GIER = 0x10;
 
-/// Global interrupt flag register (not used) 01 0001
+/// @brief Global interrupt flag register (read only) - 01 0001
+/// @details One flag bit per UART (bit 0 = UART 1 ... bit 3 = UART 4): 1 means the UART has an enabled interrupt
+/// pending. The source is found in the SIFR register of the UART.
 constexpr uint8_t WKREG_GIFR = 0x11;
 
 /// @brief Global GPIO direction register - 10 0001
@@ -191,8 +194,18 @@ constexpr uint8_t FCR_TFRST = 1 << 1;
 /// @brief Receiver FIFO reset
 constexpr uint8_t FCR_RFRST = 1 << 0;
 
-/// @brief Serial Interrupt Enable Register (not used)  - c0/c1 0111
+/// @brief Serial Interrupt Enable Register - c0/c1 0111
 constexpr uint8_t WKREG_SIER = 0x07;
+
+/// @brief GIFR value with the flags of the four UARTs set
+constexpr uint8_t GIFR_ALL = 0x0F;
+
+/// @brief SIER bit: receive FIFO data error interrupt enable
+constexpr uint8_t SIER_FERR_IEN = 1 << 7;
+/// @brief SIER bit: receive FIFO timeout interrupt enable (fewer bytes than the trigger point, line idle 4 bytes)
+constexpr uint8_t SIER_RXOVT_IEN = 1 << 1;
+/// @brief SIER bit: receive FIFO trigger point interrupt enable
+constexpr uint8_t SIER_RFTRIG_IEN = 1 << 0;
 
 /// @brief Serial Interrupt Flag Register (not used) - c0/c1 1000
 constexpr uint8_t WKREG_SIFR = 0x08;

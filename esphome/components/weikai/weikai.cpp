@@ -105,7 +105,15 @@ void WeikaiComponent::loop() {
 
   // If there are some bytes in the receive FIFO we transfers them to the ring buffers
   size_t transferred = 0;
+#ifdef USE_WEIKAI_GIFR
+  // one read tells which UARTs have a receive interrupt (or a FIFO error) pending
+  uint8_t const pending = this->gifr_poll_ ? static_cast<uint8_t>(this->reg(WKREG_GIFR, 0)) : GIFR_ALL;
+#endif
   for (auto *child : this->children_) {
+#ifdef USE_WEIKAI_GIFR
+    if (!(pending & (1 << child->channel_)))
+      continue;
+#endif
     // we look if some characters has been received in the fifo
     transferred += child->xfer_fifo_to_buffer_();
   }
@@ -275,6 +283,13 @@ void WeikaiChannel::setup_channel() {
   }
 #endif
   this->set_baudrate_();
+#ifdef USE_WEIKAI_GIFR
+  if (this->parent_->gifr_poll_) {
+    // GIFR only reports what is enabled here: data waiting (trigger point or timeout) and FIFO errors
+    this->reg(WKREG_SIER) = SIER_FERR_IEN | SIER_RXOVT_IEN | SIER_RFTRIG_IEN;
+    this->parent_->reg(WKREG_GIER, 0) |= 1 << this->channel_;
+  }
+#endif
 }
 
 bool WeikaiChannel::change_baud_rate(uint32_t baud_rate) {

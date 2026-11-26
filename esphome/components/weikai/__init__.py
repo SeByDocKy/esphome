@@ -27,6 +27,7 @@ CONF_CRYSTAL = "crystal"
 CONF_UART = "uart"
 CONF_TEST_MODE = "test_mode"
 CONF_RESTORE_BAUD_RATE = "restore_baud_rate"
+CONF_GLOBAL_INTERRUPT_POLL = "global_interrupt_poll"
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -63,6 +64,7 @@ WKBASE_SCHEMA = cv.Schema(
         cv.GenerateID(): cv.declare_id(WeikaiComponent),
         cv.Optional(CONF_CRYSTAL, default=14745600): cv.int_,
         cv.Optional(CONF_TEST_MODE, default=0): cv.int_,
+        cv.Optional(CONF_GLOBAL_INTERRUPT_POLL, default=False): cv.boolean,
         cv.Required(CONF_UART): cv.ensure_list(
             {
                 cv.Required(CONF_ID): cv.declare_id(WeikaiChannel),
@@ -99,6 +101,9 @@ async def register_weikai(var: MockObj, config: ConfigType) -> None:
     """Register an weikai device with the given config."""
     cg.add(var.set_crystal(config[CONF_CRYSTAL]))
     cg.add(var.set_test_mode(config[CONF_TEST_MODE]))
+    if config[CONF_GLOBAL_INTERRUPT_POLL]:
+        cg.add_define("USE_WEIKAI_GIFR")
+        cg.add(var.set_gifr_poll(True))
     await cg.register_component(var, config)
     for uart_elem in config[CONF_UART]:
         chan = cg.new_Pvariable(uart_elem[CONF_ID])
